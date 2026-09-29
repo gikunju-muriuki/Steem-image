@@ -44,6 +44,7 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: wrap;
         }
 
         label {
@@ -85,6 +86,11 @@
             background-color: #1d4ed8;
         }
 
+        .btn-download:disabled {
+            background-color: #94a3b8;
+            cursor: not-allowed;
+        }
+
         .canvas-wrapper {
             background-color: var(--card-color);
             border: 1px solid var(--border);
@@ -104,6 +110,14 @@
             font-size: 14px;
             color: #64748b;
             font-weight: 500;
+        }
+
+        .status-msg.error {
+            color: #ef4444;
+        }
+
+        .status-msg.success {
+            color: #10b981;
         }
     </style>
 </head>
@@ -157,35 +171,93 @@
             'solana': 'SOLUSDT'
         };
 
-        // Fetch historical OHLC data from CoinGecko
+        // Generate mock OHLC data for demo
+        function generateMockOHLCData(startPrice, days = 365) {
+            const data = [];
+            let currentPrice = startPrice;
+            const now = new Date();
+            
+            for (let i = days; i >= 0; i--) {
+                const date = new Date(now);
+                date.setDate(date.getDate() - i);
+                const timestamp = date.getTime();
+                
+                // Generate realistic candlestick data
+                const open = currentPrice;
+                const close = currentPrice * (0.98 + Math.random() * 0.04);
+                const high = Math.max(open, close) * (1 + Math.random() * 0.02);
+                const low = Math.min(open, close) * (1 - Math.random() * 0.02);
+                
+                data.push([timestamp, open, high, low, close]);
+                currentPrice = close;
+            }
+            
+            return data;
+        }
+
+        // Fetch historical OHLC data
         async function fetchChartData(coinId) {
             statusLabel.textContent = "Querying historical candlestick data...";
+            statusLabel.className = "status-msg";
+            downloadBtn.disabled = true;
+            
             try {
                 const coinGeckoId = coinIdMap[coinId];
-                // Fetch all-time OHLC data - returns [timestamp, open, high, low, close]
+                
+                // Try primary API endpoint
                 const response = await fetch(
-                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/ohlc?vs_currency=usd&days=max`
+                    `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/ohlc?vs_currency=usd&days=max`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json'
+                        }
+                    }
                 );
                 
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 
                 rawOhlcData = await response.json();
                 
                 if (!rawOhlcData || rawOhlcData.length === 0) {
-                    statusLabel.textContent = "No data available. Try again later.";
-                    return;
+                    throw new Error("No data received from API");
                 }
                 
-                statusLabel.textContent = `Successfully loaded ${rawOhlcData.length} candle periods.`;
+                statusLabel.textContent = `✓ Successfully loaded ${rawOhlcData.length} candle periods.`;
+                statusLabel.className = "status-msg success";
+                downloadBtn.disabled = false;
                 renderCandlestickMatrix(tickerMap[coinId]);
+                
             } catch (err) {
-                console.error(err);
-                statusLabel.textContent = "Error loading data. Check console.";
+                console.error('Fetch error:', err);
+                
+                // Fallback: Generate mock data for demo
+                console.log('Using mock data for demonstration...');
+                const startPrices = {
+                    'bitcoin': 45000,
+                    'ethereum': 2500,
+                    'binancecoin': 350,
+                    'ripple': 0.85,
+                    'solana': 120
+                };
+                
+                rawOhlcData = generateMockOHLCData(startPrices[coinId] || 50000, 365);
+                
+                statusLabel.textContent = `⚠ Using demo data (${rawOhlcData.length} candles)`;
+                statusLabel.className = "status-msg";
+                downloadBtn.disabled = false;
+                renderCandlestickMatrix(tickerMap[coinId]);
             }
         }
 
         function renderCandlestickMatrix(tickerLabel) {
-            if (!rawOhlcData || rawOhlcData.length === 0) return;
+            if (!rawOhlcData || rawOhlcData.length === 0) {
+                statusLabel.textContent = "No data available.";
+                statusLabel.className = "status-msg error";
+                return;
+            }
 
             // Clear canvas
             ctx.fillStyle = "#ffffff";
@@ -237,7 +309,11 @@
                 ctx.fillStyle = "#64748b";
                 ctx.font = "bold 24px monospace";
                 ctx.textAlign = "right";
-                ctx.fillText(`$${underlyingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`, paddingLeft - 20, yPos + 8);
+                ctx.fillText(
+                    `$${underlyingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
+                    paddingLeft - 20,
+                    yPos + 8
+                );
             }
 
             // 2. Map and render candlesticks
@@ -281,7 +357,11 @@
             ctx.fillStyle = "#475569";
             ctx.font = "500 32px monospace";
             ctx.textAlign = "right";
-            ctx.fillText(`Latest: $${targetLastPrice.toLocaleString(undefined, {maximumFractionDigits: 2})}`, canvas.width - paddingRight, paddingTop - 45);
+            ctx.fillText(
+                `Latest: $${targetLastPrice.toLocaleString(undefined, {maximumFractionDigits: 2})}`,
+                canvas.width - paddingRight,
+                paddingTop - 45
+            );
 
             // 4. Render Steem branding
             ctx.fillStyle = "#0f172a";
